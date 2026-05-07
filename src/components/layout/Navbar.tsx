@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { Home, Book, Package, ClipboardList, Calculator, LogOut } from 'lucide-react';
+import { Home, Book, Package, ClipboardList, Calculator, LogOut, MessageSquare } from 'lucide-react';
 
 export const Navbar = () => {
   const { profile, logout } = useAuth();
@@ -11,6 +11,7 @@ export const Navbar = () => {
     { path: '/', label: 'Home', icon: <Home className="w-4 h-4" /> },
     { path: '/catalog', label: 'Catalog', icon: <Book className="w-4 h-4" /> },
     { path: '/my-orders', label: 'My Orders', icon: <ClipboardList className="w-4 h-4" /> },
+    { path: '/chat', label: 'Chat', icon: <MessageSquare className="w-4 h-4" /> },
   ];
 
   const adminLinks = [
@@ -19,6 +20,7 @@ export const Navbar = () => {
     { path: '/admin/catalog', label: 'Stock', icon: <Package className="w-4 h-4" /> },
     { path: '/admin/orders', label: 'Orders', icon: <ClipboardList className="w-4 h-4" /> },
     { path: '/calculator', label: 'Calculator', icon: <Calculator className="w-4 h-4" /> },
+    { path: '/chat', label: 'Chat', icon: <MessageSquare className="w-4 h-4" /> },
   ];
 
   const links = profile?.role === 'admin' ? adminLinks : clientLinks;

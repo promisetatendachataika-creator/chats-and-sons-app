@@ -8,6 +8,7 @@ import { AdminCatalog } from './pages/AdminCatalog';
 import { AdminOrders } from './pages/AdminOrders';
 import { Catalog } from './pages/Catalog';
 import { MyOrders } from './pages/MyOrders';
+import { Chat } from './pages/Chat';
 import { CursorGlow } from './components/ui/CursorGlow';
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/catalog" element={<ProtectedRoute><Catalog /></ProtectedRoute>} />
           <Route path="/my-orders" element={<ProtectedRoute><MyOrders /></ProtectedRoute>} />
+          <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
 
           {/* Admin only */}
           <Route path="/admin/catalog" element={<ProtectedRoute requiredRole="admin"><AdminCatalog /></ProtectedRoute>} />

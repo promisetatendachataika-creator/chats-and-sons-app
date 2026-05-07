@@ -33,6 +33,7 @@ export const Catalog = () => {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<CatalogItem | null>(null);
   const [orderNotes, setOrderNotes] = useState('');
+  const [quantity, setQuantity] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const { user, profile } = useAuth();
@@ -61,28 +62,57 @@ export const Catalog = () => {
 
   const handleSubmitOrder = async () => {
     if (!selected || !user || !profile) return;
+    
+    // Validate stock for shop items
+    if (selected.category !== 'Service' && (selected.inStock === null || selected.inStock < quantity)) {
+      alert('Sorry, not enough stock available.');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      // 1. Save order to Firestore
-      await addDoc(collection(db, 'orders'), {
-        clientId: user.uid,
-        clientName: profile.displayName,
-        clientEmail: user.email,
-        productId: selected.id,
-        productName: selected.name,
-        category: selected.category,
-        notes: orderNotes,
-        status: 'pending',
-        totalAmount: selected.price,
-        createdAt: new Date(),
+      const { runTransaction, doc, collection } = await import('firebase/firestore');
+      
+      await runTransaction(db, async (transaction) => {
+        const productRef = doc(db, 'products', selected.id);
+        const productSnap = await transaction.get(productRef);
+        
+        if (!productSnap.exists()) throw new Error("Product does not exist!");
+        
+        if (selected.category !== 'Service') {
+          const currentStock = productSnap.data().inStock || 0;
+          if (currentStock < quantity) {
+            throw new Error("Insufficient stock!");
+          }
+          // Deduct stock
+          transaction.update(productRef, { inStock: currentStock - quantity });
+        }
+
+        // Create order
+        const orderRef = doc(collection(db, 'orders'));
+        transaction.set(orderRef, {
+          clientId: user.uid,
+          clientName: profile.displayName,
+          clientEmail: user.email,
+          productId: selected.id,
+          productName: selected.name,
+          category: selected.category,
+          quantity: selected.category === 'Service' ? 1 : quantity,
+          notes: orderNotes,
+          status: 'pending',
+          totalAmount: selected.price * (selected.category === 'Service' ? 1 : quantity),
+          createdAt: new Date(),
+        });
       });
 
       // 2. Open WhatsApp with the order pre-filled
+      const total = selected.price * (selected.category === 'Service' ? 1 : quantity);
       const msg =
         `Hi ${BUSINESS_NAME}! 👋\n\n` +
         `I'd like to ${selected.category === 'Service' ? 'request a quote' : 'place an order'} for:\n` +
         `• *${selected.name}* (${selected.category})\n` +
-        `• Price: R ${selected.price.toLocaleString()} ${selected.unit}\n` +
+        (selected.category !== 'Service' ? `• Quantity: ${quantity}\n` : '') +
+        `• Total: R ${total.toLocaleString()}\n` +
         (orderNotes ? `• Notes: ${orderNotes}\n` : '') +
         `\nMy name: ${profile.displayName}\nEmail: ${user.email}`;
 
@@ -92,9 +122,10 @@ export const Catalog = () => {
         setSelected(null);
         setSubmitted(false);
         setOrderNotes('');
+        setQuantity(1);
       }, 1200);
-    } catch (err) {
-      alert('Failed to place order. Please try again.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to place order. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -256,9 +287,28 @@ export const Catalog = () => {
                       <p className="text-xs text-gray-500">{selected.unit}</p>
                     </div>
                     {selected.category !== 'Service' && (
-                      <span className={`text-sm font-semibold ${Number(selected.inStock) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {Number(selected.inStock) > 0 ? `${selected.inStock} available` : 'Out of stock'}
-                      </span>
+                      <div className="text-right">
+                        <span className={`text-sm font-semibold block mb-2 ${Number(selected.inStock) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {Number(selected.inStock) > 0 ? `${selected.inStock} available` : 'Out of stock'}
+                        </span>
+                        {Number(selected.inStock) > 0 && (
+                          <div className="flex items-center gap-3 bg-black/40 p-1 rounded-lg border border-white/10">
+                            <button 
+                              onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/5 text-white"
+                            >
+                              -
+                            </button>
+                            <span className="w-8 text-center font-bold text-white">{quantity}</span>
+                            <button 
+                              onClick={() => setQuantity(Math.min(Number(selected.inStock), quantity + 1))}
+                              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/5 text-white"
+                            >
+                              +
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
 

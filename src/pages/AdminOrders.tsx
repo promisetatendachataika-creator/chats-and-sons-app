@@ -13,6 +13,7 @@ interface Order {
   clientEmail: string;
   productName: string;
   category: string;
+  quantity?: number;
   notes: string;
   status: 'pending' | 'in-progress' | 'completed' | 'cancelled';
   totalAmount: number;
@@ -136,7 +137,12 @@ export const AdminOrders = () => {
                       <div className="flex-1">
                         <div className="flex justify-between items-start">
                           <div>
-                            <h3 className="text-lg font-bold text-white">{order.productName}</h3>
+                            <h3 className="text-lg font-bold text-white">
+                              {order.productName} 
+                              {order.quantity && order.quantity > 1 && (
+                                <span className="ml-2 text-sm text-gray-500 font-normal">x {order.quantity}</span>
+                              )}
+                            </h3>
                             <p className="text-xs text-gray-400 uppercase tracking-wider">{order.category}</p>
                           </div>
                           {order.totalAmount > 0 && (

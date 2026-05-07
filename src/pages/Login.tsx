@@ -40,10 +40,13 @@ export const Login = () => {
   const handleGoogleLogin = async () => {
     try {
       setLoading(true);
+      setError('');
       await signInWithGoogle();
       navigate(from, { replace: true });
     } catch (err: any) {
-      setError('Google sign-in failed');
+      console.error('Google Auth Error:', err);
+      // Display specific Firebase error messages if possible
+      setError(err.message || 'Google sign-in failed. Please ensure Google Auth is enabled in Firebase Console.');
     } finally {
       setLoading(false);
     }
