@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, cloneElement } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Package, Hammer, ShoppingBag, Search, X, Send, MessageCircle } from 'lucide-react';
+import { Package, Hammer, ShoppingBag, Search, X, MessageCircle } from 'lucide-react';
 import { collection, onSnapshot, query, orderBy, addDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../hooks/useAuth';
@@ -180,7 +180,7 @@ export const Catalog = () => {
                     {item.imageUrl
                       ? <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       : <div className={`w-full h-full flex items-center justify-center ${cfg.color}`}>
-                          {React.cloneElement(cfg.icon as any, { className: 'w-12 h-12 opacity-30' })}
+                          {cloneElement(cfg.icon as any, { className: 'w-12 h-12 opacity-30' })}
                         </div>
                     }
                   </div>

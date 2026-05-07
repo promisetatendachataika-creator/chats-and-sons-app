@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ClipboardList, Clock, CheckCircle, XCircle, AlertCircle, ChevronRight } from 'lucide-react';
+import { ClipboardList, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../hooks/useAuth';

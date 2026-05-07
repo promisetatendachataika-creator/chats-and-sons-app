@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { LogIn, UserPlus, Fingerprint, Mail, Lock } from 'lucide-react';
@@ -18,7 +18,7 @@ export const Login = () => {
   const location = useLocation();
   const from = location.state?.from?.pathname || '/';
 
-  const handleEmailAuth = async (e: React.FormEvent) => {
+  const handleEmailAuth = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);

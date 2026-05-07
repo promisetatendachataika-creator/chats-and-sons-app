@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Plus, Trash2, Calculator, Save, AlertCircle } from 'lucide-react';
 import { Navbar } from '../components/layout/Navbar';

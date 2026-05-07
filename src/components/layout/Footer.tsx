@@ -1,4 +1,3 @@
-import React from 'react';
 import { MessageCircle, Mail, Phone, Code2, ExternalLink } from 'lucide-react';
 import { WHATSAPP_NUMBER, BUSINESS_EMAIL, BUSINESS_NAME } from '../../config/constants';
 

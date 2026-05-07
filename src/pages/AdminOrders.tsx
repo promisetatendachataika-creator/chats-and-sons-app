@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ClipboardList, Clock, CheckCircle, XCircle, AlertCircle, ChevronDown, User } from 'lucide-react';
+import { ClipboardList, ChevronDown, User } from 'lucide-react';
 import { collection, onSnapshot, orderBy, query, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Navbar } from '../components/layout/Navbar';

@@ -1,7 +1,6 @@
-import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { Home, Book, Package, ClipboardList, Calculator, LogOut, ChevronRight } from 'lucide-react';
+import { Home, Book, Package, ClipboardList, Calculator, LogOut } from 'lucide-react';
 
 export const Navbar = () => {
   const { profile, logout } = useAuth();
