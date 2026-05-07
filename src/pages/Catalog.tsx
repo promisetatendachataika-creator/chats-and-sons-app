@@ -1,7 +1,7 @@
 import { useState, useEffect, cloneElement } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Package, Hammer, ShoppingBag, Search, X, MessageCircle } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { Navbar } from '../components/layout/Navbar';

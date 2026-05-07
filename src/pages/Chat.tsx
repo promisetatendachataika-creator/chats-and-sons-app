@@ -4,20 +4,16 @@ import { Send, User, MessageSquare, Clock, ChevronLeft, Volume2, VolumeX } from 
 import { 
   collection, 
   query, 
-  where, 
   orderBy, 
   onSnapshot, 
   addDoc, 
   serverTimestamp,
   doc,
-  updateDoc,
-  getDocs,
-  limit
+  updateDoc
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { Navbar } from '../components/layout/Navbar';
-import { Footer } from '../components/layout/Footer';
 
 interface Message {
   id: string;
