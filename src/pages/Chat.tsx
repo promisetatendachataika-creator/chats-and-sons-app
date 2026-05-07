@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, User, MessageSquare, Clock, ChevronLeft, Volume2, VolumeX } from 'lucide-react';
+import { Send, User, MessageSquare, Clock, ChevronLeft, Volume2, VolumeX, CheckCheck } from 'lucide-react';
 import { 
   collection, 
   query, 
@@ -9,7 +9,8 @@ import {
   addDoc, 
   serverTimestamp,
   doc,
-  updateDoc
+  updateDoc,
+  setDoc
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../hooks/useAuth';
@@ -44,7 +45,8 @@ export const Chat = () => {
 
   // Initialize Audio
   useEffect(() => {
-    audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
+    // Longer notification sound
+    audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
   }, []);
 
   // Admin: Fetch all active chats
@@ -95,34 +97,40 @@ export const Chat = () => {
     setNewMessage('');
 
     try {
-      // 1. Create/Update Chat metadata
       const chatRef = doc(db, 'chats', selectedChatId);
-      await updateDoc(chatRef, {
+      
+      // 1. Update Chat metadata (Atomic set/merge)
+      const chatData = {
         lastMessage: text,
         updatedAt: serverTimestamp(),
-        clientName: isAdmin ? chats.find(c => c.id === selectedChatId)?.clientName : profile?.displayName
-      }).catch(async () => {
-        // If update fails, document might not exist (first message)
-        const { setDoc } = await import('firebase/firestore');
-        await setDoc(chatRef, {
-          clientId: isAdmin ? selectedChatId : user.uid,
-          clientName: profile?.displayName || 'User',
-          lastMessage: text,
-          updatedAt: serverTimestamp()
-        });
-      });
+        clientId: isAdmin ? selectedChatId : user.uid,
+        clientName: isAdmin 
+          ? (chats.find(c => c.id === selectedChatId)?.clientName || 'Client') 
+          : (profile?.displayName || user.email?.split('@')[0] || 'User')
+      };
+      
+      await setDoc(chatRef, chatData, { merge: true });
 
       // 2. Add message to sub-collection
       await addDoc(collection(db, 'chats', selectedChatId, 'messages'), {
         text,
         senderId: user.uid,
-        senderName: profile?.displayName,
+        senderName: profile?.displayName || 'User',
         createdAt: serverTimestamp()
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending message:', error);
+      alert('Message failed to send: ' + error.message);
     }
   };
+
+  if (!user || !profile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--color-dark-bg)]">
+        <div className="w-16 h-16 border-4 border-[var(--color-neon-blue)] border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -214,9 +222,13 @@ export const Chat = () => {
                         }`}>
                           <p className="text-sm leading-relaxed">{msg.text}</p>
                           <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'text-white/60' : 'text-gray-500'}`}>
-                            <Clock className="w-3 h-3" />
+                            {msg.createdAt ? (
+                              <CheckCheck className={`w-3 h-3 ${isOwn ? 'text-cyan-300' : 'text-gray-500'}`} />
+                            ) : (
+                              <Clock className="w-3 h-3" />
+                            )}
                             <span className="text-[10px]">
-                              {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...'}
+                              {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Sending...'}
                             </span>
                           </div>
                         </div>
