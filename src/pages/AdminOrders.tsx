@@ -5,6 +5,7 @@ import { collection, onSnapshot, orderBy, query, doc, updateDoc } from 'firebase
 import { db } from '../config/firebase';
 import { Navbar } from '../components/layout/Navbar';
 import { Footer } from '../components/layout/Footer';
+import { CURRENCY_SYMBOL } from '../config/constants';
 
 interface Order {
   id: string;
@@ -146,7 +147,7 @@ export const AdminOrders = () => {
                             <p className="text-xs text-gray-400 uppercase tracking-wider">{order.category}</p>
                           </div>
                           {order.totalAmount > 0 && (
-                            <p className="text-lg font-bold text-[var(--color-neon-blue)]">R {order.totalAmount.toLocaleString()}</p>
+                            <p className="text-lg font-bold text-[var(--color-neon-blue)]">{CURRENCY_SYMBOL} {order.totalAmount.toLocaleString()}</p>
                           )}
                         </div>
                         {order.notes && (
@@ -154,7 +155,7 @@ export const AdminOrders = () => {
                         )}
                         <p className="text-xs text-gray-500 mt-3">
                           {order.createdAt?.toDate
-                            ? order.createdAt.toDate().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            ? order.createdAt.toDate().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
                             : 'Recent'}
                         </p>
                       </div>

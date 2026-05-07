@@ -1,12 +1,12 @@
 import { useState, useEffect, cloneElement } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Package, Hammer, ShoppingBag, Search, X, MessageCircle } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, runTransaction, doc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { Navbar } from '../components/layout/Navbar';
 import { Footer } from '../components/layout/Footer';
-import { WHATSAPP_NUMBER, BUSINESS_NAME } from '../config/constants';
+import { WHATSAPP_NUMBER, BUSINESS_NAME, CURRENCY_SYMBOL } from '../config/constants';
 
 interface CatalogItem {
   id: string;
@@ -35,6 +35,8 @@ export const Catalog = () => {
   const [orderNotes, setOrderNotes] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [minPrice, setMinPrice] = useState<string>('');
+  const [maxPrice, setMaxPrice] = useState<string>('');
   const [submitted, setSubmitted] = useState(false);
   const { user, profile } = useAuth();
 
@@ -52,7 +54,9 @@ export const Catalog = () => {
     const matchSearch =
       item.name.toLowerCase().includes(search.toLowerCase()) ||
       item.description.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
+    const matchMin = minPrice === '' || item.price >= Number(minPrice);
+    const matchMax = maxPrice === '' || item.price <= Number(maxPrice);
+    return matchCat && matchSearch && matchMin && matchMax;
   });
 
   const openWhatsApp = (message: string) => {
@@ -69,10 +73,7 @@ export const Catalog = () => {
       return;
     }
 
-    setSubmitting(true);
     try {
-      const { runTransaction, doc, collection } = await import('firebase/firestore');
-      
       await runTransaction(db, async (transaction) => {
         const productRef = doc(db, 'products', selected.id);
         const productSnap = await transaction.get(productRef);
@@ -112,7 +113,7 @@ export const Catalog = () => {
         `I'd like to ${selected.category === 'Service' ? 'request a quote' : 'place an order'} for:\n` +
         `• *${selected.name}* (${selected.category})\n` +
         (selected.category !== 'Service' ? `• Quantity: ${quantity}\n` : '') +
-        `• Total: R ${total.toLocaleString()}\n` +
+        `• Total: ${CURRENCY_SYMBOL} ${total.toLocaleString()}\n` +
         (orderNotes ? `• Notes: ${orderNotes}\n` : '') +
         `\nMy name: ${profile.displayName}\nEmail: ${user.email}`;
 
@@ -162,6 +163,17 @@ export const Catalog = () => {
               <input
                 type="text" value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="Search catalog..." className="input-field pl-11 w-full"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number" value={minPrice} onChange={e => setMinPrice(e.target.value)}
+                placeholder="Min Price" className="input-field w-24 text-sm"
+              />
+              <span className="text-gray-600">-</span>
+              <input
+                type="number" value={maxPrice} onChange={e => setMaxPrice(e.target.value)}
+                placeholder="Max Price" className="input-field w-24 text-sm"
               />
             </div>
           </div>
@@ -234,7 +246,7 @@ export const Catalog = () => {
                     </div>
                     <div className="mt-4 flex items-end justify-between">
                       <div>
-                        <p className="text-2xl font-bold text-[var(--color-neon-blue)]">R {item.price.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-[var(--color-neon-blue)]">{CURRENCY_SYMBOL} {item.price.toLocaleString()}</p>
                         <p className="text-xs text-gray-500">{item.unit}</p>
                       </div>
                       {item.category === 'Service' && (
@@ -283,7 +295,7 @@ export const Catalog = () => {
                   <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-5 flex justify-between items-center">
                     <div>
                       <p className="text-sm text-gray-400 mb-1">Price</p>
-                      <p className="text-2xl font-bold text-[var(--color-neon-blue)]">R {selected.price.toLocaleString()}</p>
+                      <p className="text-2xl font-bold text-[var(--color-neon-blue)]">{CURRENCY_SYMBOL} {selected.price.toLocaleString()}</p>
                       <p className="text-xs text-gray-500">{selected.unit}</p>
                     </div>
                     {selected.category !== 'Service' && (

@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Calculator, Save, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Calculator, Save, AlertCircle, History, FolderOpen } from 'lucide-react';
+import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
+import { db } from '../config/firebase';
+import { useAuth } from '../hooks/useAuth';
 import { Navbar } from '../components/layout/Navbar';
 import { Footer } from '../components/layout/Footer';
 
@@ -13,9 +16,22 @@ interface CutPart {
   material: string;
 }
 
+interface SavedList {
+  id: string;
+  name: string;
+  parts: CutPart[];
+  wastePercentage: number;
+  createdAt: any;
+}
+
 export const CuttingList = () => {
+  const { user } = useAuth();
   const [parts, setParts] = useState<CutPart[]>([]);
-  const [wastePercentage, setWastePercentage] = useState(10); // Default 10% waste
+  const [wastePercentage, setWastePercentage] = useState(10);
+  const [listName, setListName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [savedLists, setSavedLists] = useState<SavedList[]>([]);
+  const [loadingLists, setLoadingLists] = useState(true);
   const [currentPart, setCurrentPart] = useState<Omit<CutPart, 'id'>>({
     name: '',
     length: 0,
@@ -25,6 +41,16 @@ export const CuttingList = () => {
   });
 
   const materials = ['Melamine 16mm', 'Oak Veneer 18mm', 'MDF 16mm', 'Plywood 18mm'];
+
+  // Fetch saved lists
+  useEffect(() => {
+    const q = query(collection(db, 'cuttingLists'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setSavedLists(snap.docs.map(d => ({ id: d.id, ...d.data() })) as SavedList[]);
+      setLoadingLists(false);
+    }, () => setLoadingLists(false));
+    return () => unsub();
+  }, []);
 
   const addPart = () => {
     if (currentPart.name && currentPart.length > 0 && currentPart.width > 0 && currentPart.quantity > 0) {
@@ -60,8 +86,44 @@ export const CuttingList = () => {
 
   const totals = calculateTotals();
 
-  const handleSave = () => {
-    alert("This 'Save Configuration' button will eventually save your entire cut list to the Firebase database so you can pull it up later, generate a quote for the client, or send it directly to your supplier!");
+  const handleSave = async () => {
+    if (!parts.length) return alert('Add some parts first!');
+    const name = prompt('Enter a name for this configuration:', listName || 'Project ' + new Date().toLocaleDateString());
+    if (!name) return;
+
+    setSaving(true);
+    try {
+      await addDoc(collection(db, 'cuttingLists'), {
+        name,
+        parts,
+        wastePercentage,
+        createdBy: user?.uid,
+        createdAt: serverTimestamp()
+      });
+      setListName(name);
+      alert('Configuration saved successfully!');
+    } catch (err) {
+      alert('Failed to save configuration');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const loadList = (list: SavedList) => {
+    if (parts.length > 0 && !window.confirm('Current list will be replaced. Continue?')) return;
+    setParts(list.parts);
+    setWastePercentage(list.wastePercentage);
+    setListName(list.name);
+  };
+
+  const deleteSavedList = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this saved configuration?')) return;
+    try {
+      await deleteDoc(doc(db, 'cuttingLists', id));
+    } catch (err) {
+      alert('Failed to delete');
+    }
   };
 
   return (
@@ -179,6 +241,46 @@ export const CuttingList = () => {
                 <Plus className="w-5 h-5" /> Add to List
               </button>
             </div>
+
+            {/* Saved Lists Section */}
+            <div className="mt-8 pt-8 border-t border-white/10">
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <History className="w-4 h-4" />
+                Saved Lists
+              </h3>
+              
+              {loadingLists ? (
+                <div className="flex justify-center py-4">
+                  <div className="w-6 h-6 border-2 border-[var(--color-neon-blue)] border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : savedLists.length === 0 ? (
+                <p className="text-xs text-gray-600 italic">No saved lists yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                  {savedLists.map(list => (
+                    <div 
+                      key={list.id}
+                      onClick={() => loadList(list)}
+                      className="group p-3 rounded-xl bg-white/5 border border-white/5 hover:border-[var(--color-neon-blue)]/30 hover:bg-white/10 transition-all cursor-pointer flex justify-between items-center"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-200 truncate">{list.name}</p>
+                        <p className="text-[10px] text-gray-500">{list.parts.length} parts · {list.wastePercentage}% waste</p>
+                      </div>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={(e) => deleteSavedList(list.id, e)}
+                          className="p-1.5 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <FolderOpen className="w-3.5 h-3.5 text-[var(--color-neon-blue)] ml-1" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* List Display */}
@@ -192,7 +294,7 @@ export const CuttingList = () => {
                 onClick={handleSave}
                 className="flex items-center gap-2 text-sm bg-white/5 hover:bg-white/10 px-4 py-2 rounded-lg transition-colors text-[var(--color-neon-blue)] border border-[var(--color-neon-blue)]/30"
               >
-                <Save className="w-4 h-4" /> Save Configuration
+                <Save className="w-4 h-4" /> {saving ? 'Saving...' : 'Save Configuration'}
               </button>
             </div>
 

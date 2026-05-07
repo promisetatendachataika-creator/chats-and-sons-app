@@ -6,6 +6,7 @@ import { db } from '../config/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { Navbar } from '../components/layout/Navbar';
 import { Footer } from '../components/layout/Footer';
+import { CURRENCY_SYMBOL } from '../config/constants';
 
 interface Order {
   id: string;
@@ -81,14 +82,14 @@ export const MyOrders = () => {
                         <p className="text-xs text-gray-400 uppercase tracking-wider mt-0.5">{order.category}</p>
                       </div>
                       {order.totalAmount > 0 && (
-                        <p className="text-lg font-bold text-[var(--color-neon-blue)] shrink-0">R {order.totalAmount.toLocaleString()}</p>
+                        <p className="text-lg font-bold text-[var(--color-neon-blue)] shrink-0">{CURRENCY_SYMBOL} {order.totalAmount.toLocaleString()}</p>
                       )}
                     </div>
                     {order.notes && (
                       <p className="text-sm text-gray-400 mt-3 line-clamp-2 bg-white/5 rounded-lg px-3 py-2">{order.notes}</p>
                     )}
                     <p className="text-xs text-gray-500 mt-3">
-                      {order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Recent'}
+                      {order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Recent'}
                     </p>
                   </div>
 

@@ -5,6 +5,7 @@ import { collection, addDoc, onSnapshot, deleteDoc, doc, query, orderBy } from '
 import { db } from '../config/firebase';
 import { Navbar } from '../components/layout/Navbar';
 import { Footer } from '../components/layout/Footer';
+import { CURRENCY_SYMBOL, CURRENCY_CODE } from '../config/constants';
 
 interface CatalogItem {
   id: string;
@@ -277,7 +278,7 @@ export const AdminCatalog = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-200 uppercase tracking-wider ml-1">Price (ZAR)</label>
+                  <label className="text-xs text-gray-200 uppercase tracking-wider ml-1">Price ({CURRENCY_CODE})</label>
                   <input 
                     type="number" 
                     name="price"
@@ -453,7 +454,7 @@ export const AdminCatalog = () => {
                           <p className="text-xs text-gray-400 uppercase tracking-wider">{item.category}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-lg font-bold text-[var(--color-neon-blue)]">R {item.price}</p>
+                          <p className="text-lg font-bold text-[var(--color-neon-blue)]">{CURRENCY_SYMBOL} {item.price}</p>
                           <p className="text-xs text-gray-500">{item.unit}</p>
                         </div>
                       </div>
