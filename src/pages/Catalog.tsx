@@ -1,367 +1,333 @@
-import { useState, useEffect, cloneElement } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Package, Hammer, ShoppingBag, Search, X, MessageCircle } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Search, MessageCircle, SlidersHorizontal, Minus, Plus, CheckCircle2, PackageSearch, LogIn } from 'lucide-react';
 import { collection, onSnapshot, query, orderBy, runTransaction, doc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { db } from '../config/db';
 import { useAuth } from '../hooks/useAuth';
-import { Navbar } from '../components/layout/Navbar';
-import { Footer } from '../components/layout/Footer';
+import { Shell } from '../components/layout/Shell';
+import { Sheet } from '../components/ui/Sheet';
+import { PageLoader, Spinner } from '../components/ui/Loader';
+import { ProductThumb, ProductHero } from '../components/ui/ProductImage';
 import { WHATSAPP_NUMBER, BUSINESS_NAME, CURRENCY_SYMBOL } from '../config/constants';
+import { categoryLabel, formatMoney, type CatalogItem } from '../lib/catalog';
 
-interface CatalogItem {
-  id: string;
-  name: string;
-  category: 'Shop' | 'Service' | 'Furniture';
-  description: string;
-  price: number;
-  unit: string;
-  inStock: number | null;
-  imageUrl?: string;
-}
+const filters = ['All', 'Shop', 'Furniture', 'Service'] as const;
+const waLink = (msg: string) => `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
 
-const categoryConfig: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
-  All:       { icon: <ShoppingBag className="w-4 h-4" />, color: 'text-white',       label: 'All' },
-  Shop:      { icon: <Package className="w-4 h-4" />,     color: 'text-emerald-400', label: 'Shop' },
-  Service:   { icon: <Hammer className="w-4 h-4" />,      color: 'text-amber-400',   label: 'Services' },
-  Furniture: { icon: <ShoppingBag className="w-4 h-4" />, color: 'text-purple-400',  label: 'Furniture' },
+const StockBadge = ({ item }: { item: CatalogItem }) => {
+  if (item.category === 'Service') return <span className="badge bg-brand-soft text-brand-dark ring-brand/20">Custom quote</span>;
+  const n = Number(item.inStock);
+  return n > 0
+    ? <span className="badge bg-green-50 text-moss ring-green-200">{n} in stock</span>
+    : <span className="badge bg-stone-100 text-stone-600 ring-stone-200">Out of stock</span>;
 };
 
 export const Catalog = () => {
+  const { user, profile } = useAuth();
+  const [params, setParams] = useSearchParams();
+  // Coming back from sign-in (?item=…): reopen the product they were looking at, once
+  const reopenId = useRef(params.get('item'));
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('All');
+  const [loadError, setLoadError] = useState(false);
+  // The category lives in the address (?cat=…) so footer and home-page links always switch it
+  const catParam = params.get('cat') as (typeof filters)[number] | null;
+  const filter: (typeof filters)[number] = catParam && filters.includes(catParam) ? catParam : 'All';
+  const setFilter = (f: (typeof filters)[number]) => {
+    const next = new URLSearchParams(params);
+    if (f === 'All') next.delete('cat'); else next.set('cat', f);
+    next.delete('item');
+    setParams(next, { replace: true });
+  };
   const [search, setSearch] = useState('');
+  const [showPrice, setShowPrice] = useState(false);
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
+
   const [selected, setSelected] = useState<CatalogItem | null>(null);
   const [orderNotes, setOrderNotes] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [minPrice, setMinPrice] = useState<string>('');
-  const [maxPrice, setMaxPrice] = useState<string>('');
-  const [submitted, setSubmitted] = useState(false);
-  const { user, profile } = useAuth();
+  const [orderError, setOrderError] = useState('');
+  const [doneLink, setDoneLink] = useState<string | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, 'products'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as CatalogItem[]);
+    return onSnapshot(q, (snap) => {
+      const next = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as CatalogItem[];
+      setItems(next);
+      const wanted = reopenId.current && next.find((i) => i.id === reopenId.current);
+      if (wanted) {
+        reopenId.current = null;
+        setSelected(wanted);
+      }
       setLoading(false);
-    }, () => setLoading(false));
-    return () => unsubscribe();
+      setLoadError(false);
+    }, (err) => {
+      console.error(err);
+      setLoading(false);
+      setLoadError(true);
+    });
   }, []);
 
-  const filtered = items.filter(item => {
-    const matchCat = filter === 'All' || item.category === filter;
-    const matchSearch =
-      item.name.toLowerCase().includes(search.toLowerCase()) ||
-      item.description.toLowerCase().includes(search.toLowerCase());
-    const matchMin = minPrice === '' || item.price >= Number(minPrice);
-    const matchMax = maxPrice === '' || item.price <= Number(maxPrice);
-    return matchCat && matchSearch && matchMin && matchMax;
-  });
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    return items.filter((item) =>
+      (filter === 'All' || item.category === filter) &&
+      (!s || item.name?.toLowerCase().includes(s) || item.description?.toLowerCase().includes(s)) &&
+      (minPrice === '' || item.price >= Number(minPrice)) &&
+      (maxPrice === '' || item.price <= Number(maxPrice)));
+  }, [items, filter, search, minPrice, maxPrice]);
 
-  const openWhatsApp = (message: string) => {
-    const encoded = encodeURIComponent(message);
-    window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encoded}`, '_blank');
+  const open = (item: CatalogItem) => {
+    setSelected(item);
+    setQuantity(1);
+    setOrderNotes('');
+    setOrderError('');
+    setDoneLink(null);
   };
+  const close = useCallback(() => setSelected(null), []);
+
+
+  const isService = selected?.category === 'Service';
+  const maxQty = Number(selected?.inStock) || 0;
+  const total = selected ? selected.price * (isService ? 1 : quantity) : 0;
 
   const handleSubmitOrder = async () => {
     if (!selected || !user || !profile) return;
-    
-    // Validate stock for shop items
-    if (selected.category !== 'Service' && (selected.inStock === null || selected.inStock < quantity)) {
-      alert('Sorry, not enough stock available.');
+    setOrderError('');
+    if (!isService && maxQty < quantity) {
+      setOrderError('Sorry, there isn’t enough stock for that quantity.');
       return;
     }
-
+    setSubmitting(true);
     try {
-      await runTransaction(db, async (transaction) => {
+      await runTransaction(db, async (tx) => {
         const productRef = doc(db, 'products', selected.id);
-        const productSnap = await transaction.get(productRef);
-        
-        if (!productSnap.exists()) throw new Error("Product does not exist!");
-        
-        if (selected.category !== 'Service') {
-          const currentStock = productSnap.data().inStock || 0;
-          if (currentStock < quantity) {
-            throw new Error("Insufficient stock!");
-          }
-          // Deduct stock
-          transaction.update(productRef, { inStock: currentStock - quantity });
+        const snap = await tx.get(productRef);
+        if (!snap.exists()) throw new Error('This item is no longer available.');
+        if (!isService) {
+          const stock = snap.data().inStock || 0;
+          if (stock < quantity) throw new Error('Not enough stock left for that quantity.');
+          tx.update(productRef, { inStock: stock - quantity });
         }
-
-        // Create order
-        const orderRef = doc(collection(db, 'orders'));
-        transaction.set(orderRef, {
+        tx.set(doc(collection(db, 'orders')), {
           clientId: user.uid,
           clientName: profile.displayName,
           clientEmail: user.email,
           productId: selected.id,
           productName: selected.name,
           category: selected.category,
-          quantity: selected.category === 'Service' ? 1 : quantity,
+          quantity: isService ? 1 : quantity,
           notes: orderNotes,
           status: 'pending',
-          totalAmount: selected.price * (selected.category === 'Service' ? 1 : quantity),
+          totalAmount: total,
           createdAt: new Date(),
         });
       });
 
-      // 2. Open WhatsApp with the order pre-filled
-      const total = selected.price * (selected.category === 'Service' ? 1 : quantity);
       const msg =
-        `Hi ${BUSINESS_NAME}! 👋\n\n` +
-        `I'd like to ${selected.category === 'Service' ? 'request a quote' : 'place an order'} for:\n` +
-        `• *${selected.name}* (${selected.category})\n` +
-        (selected.category !== 'Service' ? `• Quantity: ${quantity}\n` : '') +
-        `• Total: ${CURRENCY_SYMBOL} ${total.toLocaleString()}\n` +
+        `Hi ${BUSINESS_NAME}!\n\n` +
+        `I'd like to ${isService ? 'request a quote' : 'place an order'} for:\n` +
+        `• *${selected.name}* (${categoryLabel[selected.category] || selected.category})\n` +
+        (!isService ? `• Quantity: ${quantity}\n` : '') +
+        `• Total: ${formatMoney(total, CURRENCY_SYMBOL)}\n` +
         (orderNotes ? `• Notes: ${orderNotes}\n` : '') +
-        `\nMy name: ${profile.displayName}\nEmail: ${user.email}`;
-
-      setSubmitted(true);
-      setTimeout(() => {
-        openWhatsApp(msg);
-        setSelected(null);
-        setSubmitted(false);
-        setOrderNotes('');
-        setQuantity(1);
-      }, 1200);
-    } catch (err: any) {
-      alert(err.message || 'Failed to place order. Please try again.');
+        `\nName: ${profile.displayName}\nEmail: ${user.email}`;
+      setDoneLink(waLink(msg));
+    } catch (err) {
+      const m = (err as Error)?.message || '';
+      setOrderError(/offline|unavailable|network/i.test(m)
+        ? 'You seem to be offline. Orders need a connection; please try again.'
+        : m || 'Couldn’t place the order. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const containerVariants = { hidden: {}, visible: { transition: { staggerChildren: 0.07 } } };
-  const itemVariants = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
-
   return (
-    <div className="min-h-screen">
-      <Navbar />
-      <div className="pt-24 pb-12 px-6 max-w-7xl mx-auto space-y-8">
-        {/* Ambient blobs */}
-        <div className="fixed top-1/3 left-1/4 w-72 h-72 bg-[var(--color-neon-blue)] rounded-full mix-blend-screen filter blur-[120px] opacity-10 pointer-events-none" />
-        <div className="fixed bottom-1/4 right-1/4 w-72 h-72 bg-[var(--color-neon-purple)] rounded-full mix-blend-screen filter blur-[120px] opacity-10 pointer-events-none" />
-
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-6">
+    <Shell>
+      <div className="page">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-4xl font-bold neon-text">Our Catalog</h1>
-            <p className="text-gray-400 mt-1">Browse shop items, services and furniture from {BUSINESS_NAME}</p>
+            <p className="eyebrow">The shop</p>
+            <h1 className="page-title mt-2">Catalogue</h1>
+            <p className="page-sub">Materials, furniture and custom work from {BUSINESS_NAME}.</p>
           </div>
-          <div className="flex items-center gap-3">
-            {/* WhatsApp contact button */}
-            <button
-              onClick={() => openWhatsApp(`Hi ${BUSINESS_NAME}! I'd like to enquire about your products and services.`)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#25D366]/10 border border-[#25D366]/30 text-[#25D366] hover:bg-[#25D366]/20 transition-all text-sm font-medium"
-            >
-              <MessageCircle className="w-4 h-4" />
-              WhatsApp Us
-            </button>
-            <div className="relative w-full md:w-64">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text" value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="Search catalog..." className="input-field pl-11 w-full"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="number" value={minPrice} onChange={e => setMinPrice(e.target.value)}
-                placeholder="Min Price" className="input-field w-24 text-sm"
-              />
-              <span className="text-gray-600">-</span>
-              <input
-                type="number" value={maxPrice} onChange={e => setMaxPrice(e.target.value)}
-                placeholder="Max Price" className="input-field w-24 text-sm"
-              />
-            </div>
-          </div>
+          <a href={waLink(`Hi ${BUSINESS_NAME}! I'd like to ask about your products and services.`)}
+            target="_blank" rel="noreferrer" className="btn-whatsapp self-start sm:self-auto">
+            <MessageCircle className="h-4 w-4" /> Ask on WhatsApp
+          </a>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap gap-3">
-          {Object.entries(categoryConfig).map(([key, cfg]) => (
-            <button key={key} onClick={() => setFilter(key)}
-              className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium border transition-all duration-300 ${
-                filter === key
-                  ? 'bg-white/15 border-white/30 text-white shadow-[0_0_15px_rgba(0,243,255,0.15)]'
-                  : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
-              }`}
-            >
-              <span className={cfg.color}>{cfg.icon}</span>
-              {cfg.label}
+        {/* Search + filters */}
+        <div className="sticky top-14 z-20 -mx-4 mt-6 border-b border-line bg-paper/95 px-4 pb-3 pt-3 md:static md:mx-0 md:border-0 md:bg-transparent md:px-0">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+              <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search boards, hinges, wardrobes…" className="field pl-10" aria-label="Search the catalogue" />
+            </div>
+            <button onClick={() => setShowPrice((v) => !v)} aria-expanded={showPrice}
+              className={`icon-btn h-11 w-11 border ${showPrice || minPrice || maxPrice ? 'border-brand bg-brand-soft text-brand' : 'border-line bg-surface'}`}
+              aria-label="Price filter">
+              <SlidersHorizontal className="h-5 w-5" />
             </button>
-          ))}
+          </div>
+
+          {showPrice && (
+            <div className="mt-3 flex items-center gap-2">
+              <span className="text-sm text-muted">Price</span>
+              <input type="number" inputMode="decimal" value={minPrice} onChange={(e) => setMinPrice(e.target.value)}
+                placeholder="Min" className="field w-28" aria-label="Minimum price" />
+              <span className="text-faint">–</span>
+              <input type="number" inputMode="decimal" value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)}
+                placeholder="Max" className="field w-28" aria-label="Maximum price" />
+              {(minPrice || maxPrice) && (
+                <button onClick={() => { setMinPrice(''); setMaxPrice(''); }} className="text-sm font-medium text-brand">Clear</button>
+              )}
+            </div>
+          )}
+
+          <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
+            {filters.map((f) => (
+              <button key={f} onClick={() => setFilter(f)} className={`chip ${filter === f ? 'chip-active' : ''}`}>
+                {categoryLabel[f]}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Grid */}
         {loading ? (
-          <div className="flex justify-center py-24">
-            <div className="w-10 h-10 border-2 border-[var(--color-neon-blue)] border-t-transparent rounded-full animate-spin" />
+          <PageLoader label="Loading the catalogue…" />
+        ) : loadError && items.length === 0 ? (
+          <div className="card mt-6 p-10 text-center">
+            <p className="font-semibold">Couldn't load the catalogue</p>
+            <p className="mt-1 text-sm text-muted">Check your connection, then reload the page.</p>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-24 border-2 border-dashed border-white/5 rounded-2xl">
-            <ShoppingBag className="w-16 h-16 mx-auto text-gray-600 mb-4" />
-            <p className="text-gray-300 text-lg font-semibold">No items found</p>
-            <p className="text-gray-500 mt-1 text-sm">Try a different search or category</p>
+          <div className="card mt-6 flex flex-col items-center p-12 text-center">
+            <PackageSearch className="h-10 w-10 text-faint" />
+            <p className="mt-3 font-semibold">Nothing matches that</p>
+            <p className="mt-1 text-sm text-muted">Try another word or category.</p>
           </div>
         ) : (
-          <motion.div
-            variants={containerVariants} initial="hidden" animate="visible"
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
-          >
-            {filtered.map(item => {
-              const cfg = categoryConfig[item.category] || categoryConfig.Shop;
-              return (
-                <motion.div key={item.id} variants={itemVariants}
-                  onClick={() => { setSelected(item); setSubmitted(false); setOrderNotes(''); }}
-                  className="glass-panel overflow-hidden cursor-pointer glass-panel-hover group flex flex-col"
-                >
-                  {/* Image */}
-                  <div className="w-full h-44 bg-black/40 overflow-hidden">
-                    {item.imageUrl
-                      ? <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                      : <div className={`w-full h-full flex items-center justify-center ${cfg.color}`}>
-                          {cloneElement(cfg.icon as any, { className: 'w-12 h-12 opacity-30' })}
-                        </div>
-                    }
-                  </div>
-                  <div className="p-5 flex-1 flex flex-col justify-between">
-                    <div>
-                      <div className="flex justify-between items-start mb-2">
-                        <span className={`text-xs uppercase tracking-widest font-semibold ${cfg.color}`}>{item.category}</span>
-                        {item.category !== 'Service' && (
-                          <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                            Number(item.inStock) > 0
-                              ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10'
-                              : 'text-red-400 border-red-500/20 bg-red-500/10'
-                          }`}>
-                            {Number(item.inStock) > 0 ? `${item.inStock} in stock` : 'Out of stock'}
-                          </span>
-                        )}
-                      </div>
-                      <h3 className="text-lg font-bold text-white group-hover:text-[var(--color-neon-blue)] transition-colors">{item.name}</h3>
-                      <p className="text-sm text-gray-400 mt-1 line-clamp-2">{item.description}</p>
-                    </div>
-                    <div className="mt-4 flex items-end justify-between">
-                      <div>
-                        <p className="text-2xl font-bold text-[var(--color-neon-blue)]">{CURRENCY_SYMBOL} {item.price.toLocaleString()}</p>
-                        <p className="text-xs text-gray-500">{item.unit}</p>
-                      </div>
-                      {item.category === 'Service' && (
-                        <span className="text-xs px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">Custom Quote</span>
-                      )}
+          <>
+            <p className="mt-4 text-sm text-muted">{filtered.length} item{filtered.length === 1 ? '' : 's'}</p>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
+              {filtered.map((item) => (
+                <button key={item.id} onClick={() => open(item)}
+                  className="card group flex flex-col overflow-hidden text-left transition-shadow hover:shadow-md">
+                  <ProductThumb item={item} className="aspect-[4/3] w-full" />
+                  <div className="flex flex-1 flex-col p-3 sm:p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-faint">
+                      {categoryLabel[item.category] || item.category}
+                    </p>
+                    <h3 className="mt-1 line-clamp-2 text-[15px] font-semibold leading-snug text-ink group-hover:text-brand">
+                      {item.name}
+                    </h3>
+                    <p className="mt-1 hidden text-sm text-muted sm:line-clamp-2">{item.description}</p>
+                    <div className="mt-auto pt-3">
+                      <p className="font-display text-xl font-semibold text-ink">{formatMoney(item.price, CURRENCY_SYMBOL)}</p>
+                      <p className="text-xs text-faint">{item.unit}</p>
+                      <div className="mt-2"><StockBadge item={item} /></div>
                     </div>
                   </div>
-                </motion.div>
-              );
-            })}
-          </motion.div>
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
-      {/* Order / Quote Modal */}
-      <AnimatePresence>
+      {/* Product sheet */}
+      <Sheet open={!!selected} onClose={close} label={selected?.name || 'Product'}>
         {selected && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setSelected(null)} className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40" />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-6"
-            >
-              <div className="glass-panel max-w-lg w-full relative overflow-hidden neon-border">
-                {selected.imageUrl && (
-                  <div className="w-full h-48 overflow-hidden">
-                    <img src={selected.imageUrl} alt={selected.name} className="w-full h-full object-cover" />
+            <ProductHero item={selected} className="aspect-[16/10] w-full" />
+            <div className="p-5 sm:p-6">
+              <div className="flex items-center justify-between gap-2">
+                <p className="eyebrow">{categoryLabel[selected.category] || selected.category}</p>
+                <StockBadge item={selected} />
+              </div>
+              <h2 className="mt-2 font-display text-2xl font-semibold">{selected.name}</h2>
+              <p className="mt-2 text-sm leading-relaxed text-muted">{selected.description}</p>
+
+              {!user ? (
+                <div className="mt-5 rounded-2xl bg-sand p-4">
+                  <p className="font-display text-2xl font-semibold">{formatMoney(selected.price, CURRENCY_SYMBOL)}</p>
+                  <p className="text-xs text-muted">{selected.unit}</p>
+                  <p className="mt-4 text-sm text-ink">
+                    {isService ? 'Create a free account to request a quote.' : 'Create a free account to order this.'}{' '}
+                    We'll bring you straight back here.
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <Link to="/login?mode=signup" state={{ from: { pathname: '/catalog', search: `?item=${selected.id}` } }} className="btn-primary">
+                      Create account
+                    </Link>
+                    <Link to="/login" state={{ from: { pathname: '/catalog', search: `?item=${selected.id}` } }} className="btn-outline">
+                      <LogIn className="h-4 w-4" /> Sign in
+                    </Link>
                   </div>
-                )}
-                <div className="p-8">
-                  <button onClick={() => setSelected(null)}
-                    className="absolute top-4 right-4 p-2 bg-black/50 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                    <X className="w-5 h-5" />
-                  </button>
-
-                  <span className={`text-xs uppercase tracking-widest font-semibold ${categoryConfig[selected.category]?.color || 'text-white'}`}>
-                    {selected.category}
-                  </span>
-                  <h2 className="text-2xl font-bold text-white mt-1 mb-2">{selected.name}</h2>
-                  <p className="text-gray-400 text-sm mb-5">{selected.description}</p>
-
-                  <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-5 flex justify-between items-center">
+                </div>
+              ) : doneLink ? (
+                <div className="mt-6 rounded-2xl bg-green-50 p-5 text-center">
+                  <CheckCircle2 className="mx-auto h-10 w-10 text-moss" />
+                  <p className="mt-2 font-semibold text-ink">{isService ? 'Quote request saved' : 'Order saved'}</p>
+                  <p className="mt-1 text-sm text-muted">Send it to us on WhatsApp so we can confirm the details.</p>
+                  <a href={doneLink} target="_blank" rel="noreferrer" onClick={close} className="btn-whatsapp mt-4 w-full">
+                    <MessageCircle className="h-5 w-5" /> Send on WhatsApp
+                  </a>
+                </div>
+              ) : (
+                <>
+                  <div className="mt-5 flex items-center justify-between gap-4 rounded-2xl bg-sand p-4">
                     <div>
-                      <p className="text-sm text-gray-400 mb-1">Price</p>
-                      <p className="text-2xl font-bold text-[var(--color-neon-blue)]">{CURRENCY_SYMBOL} {selected.price.toLocaleString()}</p>
-                      <p className="text-xs text-gray-500">{selected.unit}</p>
+                      <p className="font-display text-2xl font-semibold">{formatMoney(selected.price, CURRENCY_SYMBOL)}</p>
+                      <p className="text-xs text-muted">{selected.unit}</p>
                     </div>
-                    {selected.category !== 'Service' && (
-                      <div className="text-right">
-                        <span className={`text-sm font-semibold block mb-2 ${Number(selected.inStock) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {Number(selected.inStock) > 0 ? `${selected.inStock} available` : 'Out of stock'}
-                        </span>
-                        {Number(selected.inStock) > 0 && (
-                          <div className="flex items-center gap-3 bg-black/40 p-1 rounded-lg border border-white/10">
-                            <button 
-                              onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/5 text-white"
-                            >
-                              -
-                            </button>
-                            <span className="w-8 text-center font-bold text-white">{quantity}</span>
-                            <button 
-                              onClick={() => setQuantity(Math.min(Number(selected.inStock), quantity + 1))}
-                              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/5 text-white"
-                            >
-                              +
-                            </button>
-                          </div>
-                        )}
+                    {!isService && maxQty > 0 && (
+                      <div className="flex items-center rounded-xl border border-line bg-surface" aria-label="Quantity">
+                        <button onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="icon-btn h-11 w-11" aria-label="Fewer">
+                          <Minus className="h-4 w-4" />
+                        </button>
+                        <span className="w-8 text-center font-semibold tabular-nums">{quantity}</span>
+                        <button onClick={() => setQuantity((q) => Math.min(maxQty, q + 1))} className="icon-btn h-11 w-11" aria-label="More">
+                          <Plus className="h-4 w-4" />
+                        </button>
                       </div>
                     )}
                   </div>
 
-                  {!submitted ? (
-                    <>
-                      <div className="mb-4">
-                        <label className="text-xs text-gray-400 uppercase tracking-wider mb-2 block">
-                          {selected.category === 'Service' ? 'Describe your project requirements' : 'Additional notes (optional)'}
-                        </label>
-                        <textarea rows={3} value={orderNotes} onChange={e => setOrderNotes(e.target.value)}
-                          className="input-field resize-none w-full"
-                          placeholder={selected.category === 'Service'
-                            ? 'e.g. Room size, preferred finish, timeline...'
-                            : 'e.g. Quantity needed, delivery address...'}
-                        />
-                      </div>
-                      <button
-                        onClick={handleSubmitOrder}
-                        disabled={submitting || (selected.category === 'Service' && !orderNotes)}
-                        className="w-full flex items-center justify-center gap-2 py-3 px-6 rounded-xl font-semibold text-white bg-[#25D366]/20 border border-[#25D366]/40 hover:bg-[#25D366]/30 transition-all disabled:opacity-50 active:scale-95"
-                      >
-                        <MessageCircle className="w-5 h-5 text-[#25D366]" />
-                        {submitting ? 'Processing...' : selected.category === 'Service' ? 'Request Quote via WhatsApp' : 'Order via WhatsApp'}
-                      </button>
-                    </>
-                  ) : (
-                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-4">
-                      <div className="w-16 h-16 rounded-full bg-[#25D366]/10 border border-[#25D366]/30 flex items-center justify-center mx-auto">
-                        <MessageCircle className="w-8 h-8 text-[#25D366]" />
-                      </div>
-                      <p className="text-[#25D366] font-bold text-lg mt-3">Opening WhatsApp...</p>
-                      <p className="text-gray-400 text-sm mt-1">Your order has been saved. Continue on WhatsApp!</p>
-                    </motion.div>
+                  {!isService && quantity > 1 && (
+                    <p className="mt-2 text-right text-sm text-muted">
+                      Total <span className="font-semibold text-ink">{formatMoney(total, CURRENCY_SYMBOL)}</span>
+                    </p>
                   )}
-                </div>
-              </div>
-            </motion.div>
+
+                  <label htmlFor="notes" className="label mt-5">
+                    {isService ? 'Tell us about the job' : 'Notes (optional)'}
+                  </label>
+                  <textarea id="notes" rows={3} value={orderNotes} onChange={(e) => setOrderNotes(e.target.value)}
+                    className="field resize-none"
+                    placeholder={isService ? 'Room size, finish you like, when you need it…' : 'Delivery address, colour, anything else…'} />
+
+                  {orderError && <p role="alert" className="mt-3 text-sm text-red-700">{orderError}</p>}
+
+                  <button onClick={handleSubmitOrder}
+                    disabled={submitting || (isService && !orderNotes.trim()) || (!isService && maxQty < 1)}
+                    className="btn-primary mt-5 w-full">
+                    {submitting && <Spinner className="!h-5 !w-5 !border-2 !border-white/40 !border-t-white" />}
+                    {!isService && maxQty < 1 ? 'Out of stock' : isService ? 'Request a quote' : 'Place order'}
+                  </button>
+                  <p className="mt-2 text-center text-xs text-faint">You'll confirm the details with us on WhatsApp.</p>
+                </>
+              )}
+            </div>
           </>
         )}
-      </AnimatePresence>
-      <Footer />
-    </div>
+      </Sheet>
+    </Shell>
   );
 };

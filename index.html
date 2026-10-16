@@ -2,12 +2,36 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>chats-and-sons-app</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#3a2c20" />
+    <meta name="description" content="Chats &amp; Sons Carpentry and Joinery. Browse boards, hardware, furniture and custom joinery, and order on WhatsApp." />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon-64.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
+    <title>Chats &amp; Sons · Carpentry &amp; Joinery</title>
+    <style>
+      /* Shown instantly while the app downloads, so a slow connection never looks like a blank page */
+      html,body{margin:0;background:#faf6ef}
+      .boot{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+        font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#6b5d4e}
+      .boot-logo{width:64px;height:64px;border-radius:14px}
+      .boot-name{font:600 20px/1.2 "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;color:#2a2017;margin:0}
+      .boot-bar{width:120px;height:3px;border-radius:3px;background:#e4d8c6;overflow:hidden}
+      .boot-bar::after{content:"";display:block;width:40%;height:100%;background:#a24e1c;animation:b 1.1s ease-in-out infinite}
+      @keyframes b{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot">
+        <img class="boot-logo" src="/logo-mark.png" alt="" />
+        <p class="boot-name">Chats &amp; Sons</p>
+        <div class="boot-bar"></div>
+      </div>
+    </div>
+    <noscript>Please enable JavaScript to use Chats &amp; Sons.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

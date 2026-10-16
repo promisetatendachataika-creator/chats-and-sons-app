@@ -71,3 +71,16 @@ export default defineConfig([
   },
 ])
 ```
+
+## Product photos and Firestore rules
+
+Product photos are stored in Firestore (no Firebase Storage needed):
+
+- a small preview (`thumb`, ~20–40 KB) on each `products/{id}` document, used in the catalogue grid
+- the full photo in `productImages/{id}`, loaded only when someone opens a product
+
+The full set of security rules for this app is in `firestore.rules`. Paste it into
+Firebase Console → Firestore Database → Rules and click **Publish**.
+
+Older products that still have their full photo on the product document show a banner on the
+Stock page. Click **Optimise photos** once to move them across.

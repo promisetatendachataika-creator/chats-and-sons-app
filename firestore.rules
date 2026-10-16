@@ -1,0 +1,79 @@
+rules_version = '2';
+
+// Paste this into Firebase Console → Firestore Database → Rules, then click Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Only the owner's Google account (verified email) gets admin rights.
+    function isAdmin() {
+      return signedIn()
+        && request.auth.token.email == 'promisetatendachataika@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    // Each person's profile
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+      allow read: if isAdmin();
+    }
+
+    // Catalogue: anyone can browse (no account needed), only the admin edits.
+    // Clients may only lower the stock count (that's what placing an order does).
+    match /products/{id} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['inStock'])
+        && request.resource.data.inStock is number
+        && request.resource.data.inStock >= 0
+        && request.resource.data.inStock < resource.data.inStock
+      );
+    }
+
+    // Full-size product photos
+    match /productImages/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Projects (finished jobs) and their full-size photos: anyone can look, only the admin edits
+    match /projects/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /projectImages/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Orders: clients create and see their own; the admin sees and updates all.
+    match /orders/{id} {
+      allow create: if signedIn()
+        && request.resource.data.clientId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow read: if isAdmin() || (signedIn() && resource.data.clientId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // Chat: each client has one conversation, stored under their user id.
+    match /chats/{chatId} {
+      allow read, write: if isAdmin() || (signedIn() && request.auth.uid == chatId);
+
+      match /messages/{messageId} {
+        allow read: if isAdmin() || (signedIn() && request.auth.uid == chatId);
+        allow create: if (isAdmin() || (signedIn() && request.auth.uid == chatId))
+          && request.resource.data.senderId == request.auth.uid;
+      }
+    }
+
+    // Workshop calculator: admin only
+    match /cuttingLists/{id} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

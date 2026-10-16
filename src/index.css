@@ -1,71 +1,114 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
+/*
+ * Warm workshop theme.
+ * System fonts only — nothing to download before text shows.
+ */
 @theme {
-  --color-neon-blue: #00f3ff;
-  --color-neon-purple: #b026ff;
-  --color-dark-bg: #0a0a0f;
-  --color-dark-panel: rgba(20, 20, 25, 0.7);
-  
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --color-paper: #faf6ef;
+  --color-surface: #ffffff;
+  --color-sand: #f2eadd;
+  --color-line: #e4d8c6;
+  --color-ink: #2a2017;
+  --color-walnut: #3a2c20;
+  --color-muted: #6b5d4e;
+  --color-faint: #978876;
+  --color-brand: #a24e1c;
+  --color-brand-dark: #7d3a12;
+  --color-brand-soft: #f6e6d7;
+  --color-moss: #3d6b37;
+  --color-whatsapp: #1b8a4a;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+
+  --animate-rise: rise 0.35s ease-out both;
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+  --animate-sheet: sheet 0.25s ease-out both;
+  @keyframes sheet {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: none; }
+  }
 }
 
 @layer base {
-  :root {
-    color-scheme: dark;
-  }
-  
+  :root { color-scheme: light; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  section[id] { scroll-margin-top: 5rem; }
   body {
-    @apply bg-[var(--color-dark-bg)] text-gray-100 font-sans min-h-screen selection:bg-neon-blue/30 selection:text-white;
-    background-image: 
-      radial-gradient(circle at 15% 50%, rgba(0, 243, 255, 0.05), transparent 25%),
-      radial-gradient(circle at 85% 30%, rgba(176, 38, 255, 0.05), transparent 25%);
-    background-attachment: fixed;
+    @apply bg-paper text-ink font-sans antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1, h2, h3 { @apply text-ink; }
+  :focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+  ::selection { background: var(--color-brand-soft); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   }
 }
 
+@utility btn {
+  @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold
+    transition-colors active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+}
+
 @layer components {
-  .glass-panel {
-    @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)];
-  }
-  
-  .glass-panel-hover {
-    @apply transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:shadow-[0_8px_32px_rgba(0,243,255,0.1)];
+  .page { @apply mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 md:py-10; }
+  .page-title { @apply font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl; }
+  .page-sub { @apply mt-1 text-sm text-muted sm:text-base; }
+  .eyebrow { @apply text-xs font-semibold uppercase tracking-[0.14em] text-brand; }
+
+  .card { @apply rounded-2xl border border-line bg-surface shadow-[0_1px_2px_rgba(42,32,23,0.05)]; }
+
+  .btn-primary { @apply btn bg-brand text-white hover:bg-brand-dark; }
+  .btn-dark { @apply btn bg-ink text-paper hover:bg-walnut; }
+  .btn-outline { @apply btn border border-line bg-surface text-ink hover:bg-sand; }
+  .btn-whatsapp { @apply btn bg-whatsapp text-white hover:brightness-95; }
+  .icon-btn {
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition-colors hover:bg-sand hover:text-ink;
   }
 
-  .neon-text {
-    @apply text-transparent bg-clip-text bg-gradient-to-r from-[var(--color-neon-blue)] to-[var(--color-neon-purple)];
+  .label { @apply mb-1.5 block text-sm font-medium text-ink; }
+  .field {
+    @apply w-full min-h-11 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[16px] text-ink
+      placeholder:text-faint transition-colors focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20;
+  }
+  select.field { @apply pr-8; }
+
+  .chip {
+    @apply inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface px-4 text-sm font-medium text-muted
+      transition-colors hover:text-ink;
+  }
+  .chip-active { @apply border-ink bg-ink text-paper hover:text-paper; }
+
+  .badge { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset; }
+
+  .spinner {
+    @apply inline-block h-8 w-8 animate-spin rounded-full border-[3px] border-line border-t-brand;
   }
 
-  .neon-border {
-    @apply relative before:absolute before:-inset-[1px] before:rounded-[inherit] before:p-[1px] before:bg-gradient-to-r before:from-[var(--color-neon-blue)] before:to-[var(--color-neon-purple)] before:-z-10 before:opacity-0 hover:before:opacity-100 before:transition-opacity before:duration-500;
+  /* Subtle plank texture used behind the logo / login panel */
+  .woodgrain {
+    background-color: var(--color-walnut);
+    background-image:
+      repeating-linear-gradient(100deg, rgba(255,255,255,0.025) 0 2px, transparent 2px 9px),
+      repeating-linear-gradient(97deg, rgba(0,0,0,0.08) 0 1px, transparent 1px 23px);
   }
-  
-  .btn-primary {
-    @apply relative overflow-hidden bg-white/10 backdrop-blur-md text-white font-medium px-6 py-3 rounded-xl border border-white/20 transition-all duration-300 hover:bg-white/20 hover:border-white/30 hover:shadow-[0_0_20px_rgba(0,243,255,0.3)] active:scale-95;
-  }
-  
-  .input-field {
-    @apply w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-[var(--color-neon-blue)] focus:ring-1 focus:ring-[var(--color-neon-blue)] transition-all duration-300;
-    color: white !important;
-    -webkit-text-fill-color: white !important;
-  }
+}
 
-  .input-field:hover,
-  .input-field:focus {
-    background-color: rgba(0, 0, 0, 0.6) !important;
-    color: white !important;
-    -webkit-text-fill-color: white !important;
-  }
-
-  /* Fix: prevent browser autofill from turning inputs white */
-  .input-field:-webkit-autofill,
-  .input-field:-webkit-autofill:hover,
-  .input-field:-webkit-autofill:focus,
-  .input-field:-webkit-autofill:active {
-    -webkit-text-fill-color: white !important;
-    -webkit-box-shadow: 0 0 0px 1000px #0d0d14 inset !important;
-    transition: background-color 9999s ease-in-out 0s;
-    caret-color: white;
-  }
+/*
+ * Landing-page hero: wood grain drawn by the browser from a ~1 KB SVG,
+ * so the first screen looks rich without downloading a large photo on slow data.
+ */
+.hero-wood {
+  background-color: #6b4024;
+  background-image:
+    linear-gradient(180deg, rgba(28, 18, 10, 0.55) 0%, rgba(28, 18, 10, 0.35) 45%, rgba(28, 18, 10, 0.78) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='800'%3E%3Cfilter id='a'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0035 0.11' numOctaves='4' seed='3'/%3E%3CfeColorMatrix values='0 0 0 0 0.18 0 0 0 0 0.09 0 0 0 0 0.03 2.2 0 0 0 -0.9'/%3E%3C/filter%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.002 0.045' numOctaves='3' seed='11'/%3E%3CfeColorMatrix values='0 0 0 0 0.86 0 0 0 0 0.6 0 0 0 0 0.36 1.8 0 0 0 -0.95'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' fill='%23946033'/%3E%3Crect width='100%25' height='100%25' filter='url(%23b)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23a)'/%3E%3C/svg%3E");
+  background-size: cover;
+  background-position: center;
 }

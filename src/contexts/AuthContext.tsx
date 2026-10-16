@@ -1,15 +1,9 @@
 import { createContext, useState, useEffect, type ReactNode } from 'react';
-import {
-  type User,
-  onAuthStateChanged,
-  signInWithPopup,
-  signOut,
-} from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, googleProvider } from '../config/firebase';
+import { type User, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { auth, googleProvider } from '../config/firebase';
 import { ADMIN_EMAIL } from '../config/constants';
 
-interface UserProfile {
+export interface UserProfile {
   id: string;
   email: string;
   displayName: string;
@@ -26,77 +20,53 @@ interface AuthContextType {
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
+const buildProfile = (u: User): UserProfile => ({
+  id: u.uid,
+  email: u.email || '',
+  displayName: u.displayName || u.email?.split('@')[0] || 'User',
+  role: u.email === ADMIN_EMAIL ? 'admin' : 'client',
+});
+
+/**
+ * Keeps the users/{uid} document in Firestore up to date, in the background.
+ * The app no longer waits for this before showing a page: the role comes from the
+ * signed-in email, which is already on the phone, so there's no network round-trip.
+ */
+async function syncProfileDoc(u: User) {
+  try {
+    const [{ db }, { doc, getDoc, setDoc }] = await Promise.all([
+      import('../config/db'),
+      import('firebase/firestore'),
+    ]);
+    const profile = buildProfile(u);
+    const ref = doc(db, 'users', u.uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, profile);
+    } else if (snap.data().role !== profile.role) {
+      await setDoc(ref, { role: profile.role }, { merge: true });
+    }
+  } catch (err) {
+    console.warn('Profile sync skipped:', err);
+  }
+}
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    return onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-
-      if (currentUser) {
-        // Determine role — only the admin email gets admin access
-        const isAdmin = currentUser.email === ADMIN_EMAIL;
-
-        try {
-          const userRef = doc(db, 'users', currentUser.uid);
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Firestore timeout')), 5000)
-          );
-          const userSnap = await Promise.race([
-            getDoc(userRef),
-            timeoutPromise,
-          ]) as any;
-
-          if (userSnap.exists()) {
-            // Always enforce role based on email — not stored value
-            const data = userSnap.data() as UserProfile;
-            const correctedProfile = { ...data, role: isAdmin ? 'admin' : 'client' } as UserProfile;
-            // Sync the role to Firestore if it changed
-            if (data.role !== correctedProfile.role) {
-              await setDoc(userRef, correctedProfile, { merge: true });
-            }
-            setProfile(correctedProfile);
-          } else {
-            const newProfile: UserProfile = {
-              id: currentUser.uid,
-              email: currentUser.email || '',
-              displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
-              role: isAdmin ? 'admin' : 'client',
-            };
-            await Promise.race([
-              setDoc(userRef, newProfile),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Write timeout')), 5000)),
-            ]);
-            setProfile(newProfile);
-          }
-        } catch (error) {
-          console.error('Error fetching/creating user profile:', error);
-          setProfile({
-            id: currentUser.uid,
-            email: currentUser.email || '',
-            displayName: currentUser.displayName || 'User',
-            role: isAdmin ? 'admin' : 'client',
-          });
-        }
-      } else {
-        setProfile(null);
-      }
-
+      setProfile(currentUser ? buildProfile(currentUser) : null);
       setLoading(false);
+      if (currentUser) void syncProfileDoc(currentUser);
     });
-
-    return () => unsubscribe();
   }, []);
 
   const signInWithGoogle = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error('Error signing in with Google', error);
-      throw error;
-    }
+    await signInWithPopup(auth, googleProvider);
   };
 
   const logout = async () => {

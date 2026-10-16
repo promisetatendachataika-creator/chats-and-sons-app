@@ -1,266 +1,193 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Send, User, MessageSquare, Clock, ChevronLeft, Volume2, VolumeX, CheckCheck } from 'lucide-react';
-import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  addDoc, 
-  serverTimestamp,
-  doc,
-  setDoc
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { useState, useEffect, useRef } from 'react';
+import { Send, MessageSquare, ChevronLeft, Volume2, VolumeX, Check, Clock } from 'lucide-react';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, setDoc } from 'firebase/firestore';
+import { db } from '../config/db';
 import { useAuth } from '../hooks/useAuth';
-import { Navbar } from '../components/layout/Navbar';
+import { Shell } from '../components/layout/Shell';
+import { LogoMark } from '../components/layout/Logo';
+import { Spinner } from '../components/ui/Loader';
+import { BUSINESS_NAME } from '../config/constants';
 
-interface Message {
-  id: string;
-  text: string;
-  senderId: string;
-  createdAt: any;
-}
+interface Message { id: string; text: string; senderId: string; createdAt: { toDate?: () => Date } | null }
+interface ChatThread { id: string; clientId: string; clientName: string; lastMessage: string; updatedAt: unknown }
 
-interface Chat {
-  id: string;
-  clientId: string;
-  clientName: string;
-  lastMessage: string;
-  updatedAt: any;
-}
+const SOUND_URL = 'https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3';
+const time = (m: Message) => m.createdAt?.toDate?.().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const initials = (name: string) => name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase();
 
 export const Chat = () => {
   const { user, profile } = useAuth();
+  const isAdmin = profile?.role === 'admin';
   const [messages, setMessages] = useState<Message[]>([]);
-  const [chats, setChats] = useState<Chat[]>([]);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const [chats, setChats] = useState<ChatThread[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const soundRef = useRef(soundEnabled);
+  useEffect(() => { soundRef.current = soundEnabled; }, [soundEnabled]);
 
-  const isAdmin = profile?.role === 'admin';
-
-  // Initialize Audio
-  useEffect(() => {
-    // Longer notification sound
-    audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
-  }, []);
-
-  // Admin: Fetch all active chats
+  // Admin: list of conversations
   useEffect(() => {
     if (!isAdmin) return;
     const q = query(collection(db, 'chats'), orderBy('updatedAt', 'desc'));
-    const unsub = onSnapshot(q, (snap) => {
-      setChats(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Chat[]);
-    });
-    return () => unsub();
+    return onSnapshot(q, (snap) => setChats(snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ChatThread[]));
   }, [isAdmin]);
 
-  // Client: Fetch or Create their own chat ID
-  useEffect(() => {
-    if (isAdmin || !user) return;
-    setSelectedChatId(user.uid);
-  }, [isAdmin, user]);
+  // Clients always see their own conversation; the admin picks one from the list.
+  const chatId = isAdmin ? selectedChatId : user?.uid ?? null;
 
-  // Fetch messages for selected chat
+  // Messages for the open conversation (one listener per conversation)
   useEffect(() => {
-    if (!selectedChatId) return;
-    const q = query(
-      collection(db, 'chats', selectedChatId, 'messages'),
-      orderBy('createdAt', 'asc')
-    );
+    if (!chatId) return;
+    let first = true;
+    let prevCount = 0;
+    const q = query(collection(db, 'chats', chatId, 'messages'), orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
-      const newMsgs = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Message[];
-      
-      // Play sound if a new message arrived from someone else
-      if (newMsgs.length > messages.length) {
-        const lastMsg = newMsgs[newMsgs.length - 1];
-        if (lastMsg.senderId !== user?.uid && soundEnabled) {
-          audioRef.current?.play().catch(e => console.log('Audio play failed', e));
+      const next = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Message[];
+      const last = next[next.length - 1];
+      if (!first && next.length > prevCount && last && last.senderId !== user?.uid && soundRef.current) {
+        if (!audioRef.current) {
+          audioRef.current = new Audio(SOUND_URL); // only downloaded the first time it's needed
         }
+        audioRef.current.play().catch(() => {});
       }
-      
-      setMessages(newMsgs);
-      setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    });
-    return () => unsub();
-  }, [selectedChatId, user?.uid, soundEnabled, messages.length]);
+      first = false;
+      prevCount = next.length;
+      setMessages(next);
+      setLoadedFor(chatId);
+      requestAnimationFrame(() => endRef.current?.scrollIntoView({ block: 'end' }));
+    }, () => setLoadedFor(chatId));
+    return unsub;
+  }, [chatId, user?.uid]);
+
+  const loadingMsgs = !!chatId && loadedFor !== chatId;
+  const shown = loadingMsgs ? [] : messages;
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedChatId || !user) return;
-
     const text = newMessage.trim();
+    if (!text || !chatId || !user) return;
     setNewMessage('');
-
     try {
-      const chatRef = doc(db, 'chats', selectedChatId);
-      
-      // 1. Update Chat metadata (Atomic set/merge)
-      const chatData = {
+      await setDoc(doc(db, 'chats', chatId), {
         lastMessage: text,
         updatedAt: serverTimestamp(),
-        clientId: isAdmin ? selectedChatId : user.uid,
-        clientName: isAdmin 
-          ? (chats.find(c => c.id === selectedChatId)?.clientName || 'Client') 
-          : (profile?.displayName || user.email?.split('@')[0] || 'User')
-      };
-      
-      await setDoc(chatRef, chatData, { merge: true });
-
-      // 2. Add message to sub-collection
-      await addDoc(collection(db, 'chats', selectedChatId, 'messages'), {
+        clientId: isAdmin ? chatId : user.uid,
+        clientName: isAdmin
+          ? chats.find((c) => c.id === chatId)?.clientName || 'Client'
+          : profile?.displayName || user.email?.split('@')[0] || 'Client',
+      }, { merge: true });
+      await addDoc(collection(db, 'chats', chatId, 'messages'), {
         text,
         senderId: user.uid,
         senderName: profile?.displayName || 'User',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error sending message:', error);
-      alert('Message failed to send: ' + error.message);
+      setNewMessage(text);
+      alert('Message not sent. Check your connection and try again.');
     }
   };
 
-  if (!user || !profile) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--color-dark-bg)]">
-        <div className="w-16 h-16 border-4 border-[var(--color-neon-blue)] border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
+  const activeName = isAdmin ? chats.find((c) => c.id === chatId)?.clientName || 'Client' : BUSINESS_NAME;
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <Navbar />
-      <div className="flex-1 pt-20 pb-6 px-4 max-w-6xl mx-auto w-full flex gap-6 h-[calc(100vh-80px)]">
-        
-        {/* Admin Sidebar */}
+    <Shell footer={false}>
+      <div className="mx-auto flex h-[calc(100dvh-3.5rem-4rem-env(safe-area-inset-bottom))] w-full max-w-6xl gap-4 md:h-[calc(100dvh-4rem)] md:p-6">
+        {/* Conversations (admin) */}
         {isAdmin && (
-          <div className={`w-full md:w-80 glass-panel flex flex-col ${selectedChatId ? 'hidden md:flex' : 'flex'}`}>
-            <div className="p-4 border-b border-white/10 flex justify-between items-center">
-              <h2 className="font-bold text-white flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-[var(--color-neon-blue)]" />
-                Active Chats
-              </h2>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-2">
-              {chats.map(chat => (
-                <button
-                  key={chat.id}
-                  onClick={() => setSelectedChatId(chat.id)}
-                  className={`w-full p-3 rounded-xl text-left transition-all ${
-                    selectedChatId === chat.id 
-                      ? 'bg-[var(--color-neon-blue)]/20 border border-[var(--color-neon-blue)]/30' 
-                      : 'hover:bg-white/5 border border-transparent'
-                  }`}
-                >
-                  <p className="text-white font-semibold text-sm">{chat.clientName}</p>
-                  <p className="text-xs text-gray-500 truncate mt-1">{chat.lastMessage || 'Start a conversation'}</p>
+          <aside className={`w-full flex-col border-line bg-surface md:flex md:w-80 md:rounded-2xl md:border ${selectedChatId ? 'hidden' : 'flex'}`}>
+            <h2 className="flex items-center gap-2 border-b border-line px-4 py-4 font-semibold">
+              <MessageSquare className="h-5 w-5 text-brand" /> Conversations
+            </h2>
+            <div className="flex-1 overflow-y-auto p-2">
+              {chats.length === 0 && <p className="p-4 text-sm text-muted">No conversations yet.</p>}
+              {chats.map((chat) => (
+                <button key={chat.id} onClick={() => setSelectedChatId(chat.id)}
+                  className={`flex w-full items-center gap-3 rounded-xl p-3 text-left transition-colors ${selectedChatId === chat.id ? 'bg-brand-soft' : 'hover:bg-sand'}`}>
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-walnut text-xs font-semibold text-paper">
+                    {initials(chat.clientName || 'C')}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold">{chat.clientName}</span>
+                    <span className="block truncate text-xs text-muted">{chat.lastMessage || 'Start a conversation'}</span>
+                  </span>
                 </button>
               ))}
             </div>
-          </div>
+          </aside>
         )}
 
-        {/* Chat Window */}
-        <div className={`flex-1 glass-panel flex flex-col relative overflow-hidden ${isAdmin && !selectedChatId ? 'hidden md:flex' : 'flex'}`}>
-          {!selectedChatId ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-              <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-4 border border-white/10">
-                <MessageSquare className="w-10 h-10 text-gray-600" />
-              </div>
-              <h3 className="text-xl font-bold text-white">Select a client to start chatting</h3>
-              <p className="text-gray-500 mt-2">Real-time support and order discussions</p>
+        {/* Conversation */}
+        <section className={`min-w-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-2xl md:border md:border-line ${isAdmin && !selectedChatId ? 'hidden md:flex' : 'flex'}`}>
+          {!chatId ? (
+            <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+              <MessageSquare className="h-10 w-10 text-faint" />
+              <p className="mt-3 font-semibold">Choose a conversation</p>
+              <p className="mt-1 text-sm text-muted">Messages from clients appear on the left.</p>
             </div>
           ) : (
             <>
-              {/* Chat Header */}
-              <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
-                <div className="flex items-center gap-3">
+              <header className="flex items-center justify-between gap-3 border-b border-line px-3 py-3 sm:px-4">
+                <div className="flex min-w-0 items-center gap-3">
                   {isAdmin && (
-                    <button onClick={() => setSelectedChatId(null)} className="md:hidden p-2 text-gray-400 hover:text-white">
-                      <ChevronLeft className="w-6 h-6" />
+                    <button onClick={() => setSelectedChatId(null)} className="icon-btn md:hidden" aria-label="Back to conversations">
+                      <ChevronLeft className="h-6 w-6" />
                     </button>
                   )}
-                  <div className="w-10 h-10 rounded-full bg-[var(--color-neon-blue)]/20 flex items-center justify-center border border-[var(--color-neon-blue)]/20">
-                    <User className="w-5 h-5 text-[var(--color-neon-blue)]" />
-                  </div>
-                  <div>
-                    <h3 className="text-white font-bold leading-none">
-                      {isAdmin ? chats.find(c => c.id === selectedChatId)?.clientName : 'Business Support'}
-                    </h3>
-                    <p className="text-[10px] text-emerald-400 mt-1 uppercase tracking-widest font-bold">Online</p>
+                  {isAdmin ? (
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-walnut text-xs font-semibold text-paper">{initials(activeName)}</span>
+                  ) : <LogoMark className="h-10 w-10 text-xs" />}
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">{activeName}</p>
+                    <p className="text-xs text-muted">{isAdmin ? 'Client' : 'Workshop team'}</p>
                   </div>
                 </div>
-                <button 
-                  onClick={() => setSoundEnabled(!soundEnabled)}
-                  className={`p-2 rounded-lg transition-colors ${soundEnabled ? 'text-cyan-400 hover:bg-cyan-400/10' : 'text-gray-500 hover:bg-white/10'}`}
-                >
-                  {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                <button onClick={() => setSoundEnabled(!soundEnabled)} className="icon-btn"
+                  aria-label={soundEnabled ? 'Mute notifications' : 'Unmute notifications'}>
+                  {soundEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
                 </button>
+              </header>
+
+              <div className="flex-1 space-y-2 overflow-y-auto bg-paper px-3 py-4 sm:px-5">
+                {loadingMsgs && <div className="grid place-items-center py-10"><Spinner /></div>}
+                {!loadingMsgs && shown.length === 0 && (
+                  <p className="mx-auto max-w-xs py-10 text-center text-sm text-muted">
+                    {isAdmin ? 'No messages yet.' : 'Ask us anything about a product, a quote or your order.'}
+                  </p>
+                )}
+                {shown.map((msg) => {
+                  const own = msg.senderId === user?.uid;
+                  return (
+                    <div key={msg.id} className={`flex ${own ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[82%] rounded-2xl px-3.5 py-2 shadow-sm ${own ? 'rounded-br-md bg-brand text-white' : 'rounded-bl-md border border-line bg-surface text-ink'}`}>
+                        <p className="whitespace-pre-wrap break-words text-[15px] leading-snug">{msg.text}</p>
+                        <p className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${own ? 'text-white/70' : 'text-faint'}`}>
+                          {time(msg) || 'Sending…'}
+                          {own && (msg.createdAt ? <Check className="h-3 w-3" /> : <Clock className="h-3 w-3" />)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={endRef} />
               </div>
 
-              {/* Messages Area */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                <AnimatePresence initial={false}>
-                  {messages.map((msg) => {
-                    const isOwn = msg.senderId === user?.uid;
-                    return (
-                      <motion.div
-                        key={msg.id}
-                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div className={`max-w-[80%] p-3 rounded-2xl ${
-                          isOwn 
-                            ? 'bg-gradient-to-br from-[var(--color-neon-blue)] to-blue-700 text-white rounded-tr-none' 
-                            : 'bg-white/10 text-gray-200 rounded-tl-none border border-white/10'
-                        }`}>
-                          <p className="text-sm leading-relaxed">{msg.text}</p>
-                          <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'text-white/60' : 'text-gray-500'}`}>
-                            {msg.createdAt ? (
-                              <CheckCheck className={`w-3 h-3 ${isOwn ? 'text-cyan-300' : 'text-gray-500'}`} />
-                            ) : (
-                              <Clock className="w-3 h-3" />
-                            )}
-                            <span className="text-[10px]">
-                              {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Sending...'}
-                            </span>
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </AnimatePresence>
-                <div ref={scrollRef} />
-              </div>
-
-              {/* Input Area */}
-              <form onSubmit={handleSendMessage} className="p-4 bg-black/40 border-t border-white/10">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="Type your message..."
-                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-neon-blue)]/50 placeholder:text-gray-600"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!newMessage.trim()}
-                    className="p-3 bg-[var(--color-neon-blue)] hover:bg-cyan-400 text-black rounded-xl transition-all disabled:opacity-50 disabled:hover:bg-[var(--color-neon-blue)] active:scale-95"
-                  >
-                    <Send className="w-5 h-5" />
-                  </button>
-                </div>
+              <form onSubmit={handleSendMessage} className="flex gap-2 border-t border-line bg-surface p-3">
+                <input value={newMessage} onChange={(e) => setNewMessage(e.target.value)}
+                  placeholder="Write a message…" className="field" aria-label="Message" enterKeyHint="send" />
+                <button type="submit" disabled={!newMessage.trim()} className="btn-primary w-12 shrink-0 px-0" aria-label="Send">
+                  <Send className="h-5 w-5" />
+                </button>
               </form>
             </>
           )}
-        </div>
+        </section>
       </div>
-    </div>
+    </Shell>
   );
 };
